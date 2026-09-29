@@ -1,0 +1,33 @@
+name: testes
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  testes:
+    runs-on: ${{ matrix.so }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        so: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # Dois juizes: o SortedDictionary, que e a mesma estrutura, e as cinco
+      # regras da arvore -- conferidas depois de CADA operacao.
+      - name: testes
+        run: dotnet test testes/Arvore.Testes/Arvore.Testes.csproj -c Release --nologo -v q
+
+      # A medida da altura e das rotacoes roda para REGISTRAR os numeros. Nao
+      # ha asseveracao de tempo aqui: teste de relogio em maquina compartilhada
+      # falha sem nada ter piorado.
+      - name: a altura e as rotacoes
+        run: dotnet run --project ferramentas/Medidor/Medidor.csproj -c Release --nologo -- rotacoes
