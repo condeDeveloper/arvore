@@ -136,12 +136,15 @@ public static class Programa
     private static void Escritas()
     {
         Console.WriteLine($"== rotacoes por insercao, com {Quantas:N0} chaves ==");
-        Console.WriteLine($"{"entrada",-14}{"AVL",12}{"LLRB",12}{"treap",12}{"AVL/ins",10}{"LLRB/ins",10}");
+        Console.WriteLine($"{"entrada",-14}{"AVL",12}{"classica",12}{"LLRB",12}{"treap",12}{"LLRB/classica",15}");
 
         foreach (var (entrada, chaves) in Entradas())
         {
             var avl = new Avl<int, int>();
             foreach (var chave in chaves) avl.Inserir(chave, 0);
+
+            var classica = new Classica<int, int>();
+            foreach (var chave in chaves) classica.Inserir(chave, 0);
 
             var rubro = new Rubro<int, int>();
             foreach (var chave in chaves) rubro.Inserir(chave, 0);
@@ -149,8 +152,9 @@ public static class Programa
             var treap = new Treap<int, int>(semente: 101);
             foreach (var chave in chaves) treap.Inserir(chave, 0);
 
-            Console.WriteLine($"{entrada,-14}{avl.Rotacoes,12:N0}{rubro.Rotacoes,12:N0}{treap.Rotacoes,12:N0}" +
-                              $"{avl.Rotacoes / (double)Quantas,10:F2}{rubro.Rotacoes / (double)Quantas,10:F2}");
+            Console.WriteLine($"{entrada,-14}{avl.Rotacoes,12:N0}{classica.Rotacoes,12:N0}" +
+                              $"{rubro.Rotacoes,12:N0}{treap.Rotacoes,12:N0}" +
+                              $"{rubro.Rotacoes / (double)Math.Max(1, classica.Rotacoes),15:F2}");
         }
 
         var contador = new Rubro<int, int>();
@@ -158,6 +162,10 @@ public static class Programa
         Console.WriteLine();
         Console.WriteLine($"a LLRB ainda faz {contador.Recoloracoes:N0} recoloracoes, que nao mexem em ponteiro nenhum");
         Console.WriteLine("e sao muito mais baratas que uma rotacao");
+        Console.WriteLine();
+        Console.WriteLine("a ultima coluna e a comparacao que importa: as duas rubro-negras obedecem as");
+        Console.WriteLine("MESMAS cinco regras e diferem so na restricao de manter toda vermelha a");
+        Console.WriteLine("esquerda. O que essa restricao cobra esta ali, em rotacoes");
         Console.WriteLine();
     }
 
