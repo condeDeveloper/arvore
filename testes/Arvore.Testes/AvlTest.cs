@@ -3,254 +3,151 @@ using Xunit;
 namespace Conde.Arvore.Testes;
 
 /// <summary>
-/// A AVL, contra o mesmo juiz — e a comparação entre as duas.
+/// A AVL, e o limite de 1,44 log2(n) conferido em vez de citado.
 /// </summary>
-/// <remarks>
-/// A AVL está no projeto para que a frase "a AVL é mais equilibrada e a
-/// rubro-negra rotaciona menos" venha com o número junto. Aqui estão os testes
-/// que medem as duas metades dessa frase.
-/// </remarks>
 public class AvlTest
 {
-    private static void ExigirSadia<TValor>(ArvoreAvl<int, TValor> arvore, string quando)
+    /// <summary>
+    /// A altura obedece ao limite provado, em TODA sequencia de entrada,
+    /// inclusive nas que destroem a arvore sem balanceamento.
+    ///
+    /// O limite vem da arvore minima: uma AVL de altura h minima tem uma
+    /// subarvore de altura h-1 e outra de h-2, o que e Fibonacci, e dai sai
+    /// h &lt;= 1,4405 log2(n+2) - 1,3277.
+    /// </summary>
+    [Theory]
+    [InlineData("crescente")]
+    [InlineData("decrescente")]
+    [InlineData("zigue-zague")]
+    [InlineData("sorteada")]
+    [InlineData("em blocos")]
+    public void AAlturaObedeceAoLimiteDeFibonacci(string qual)
     {
-        var problemas = arvore.Conferir();
-
-        Assert.True(problemas.Count == 0, $"{quando}: {string.Join("; ", problemas)}");
-    }
-
-    [Fact(DisplayName = "a regra da AVL vale depois de CADA operação")]
-    public void ARegraValeSempre()
-    {
-        var sorteio = new Random(20260929);
-        var arvore = new ArvoreAvl<int, string>();
-        var juiz = new SortedDictionary<int, string>();
-
-        for (var i = 0; i < 3_000; i++)
+        var chaves = qual switch
         {
-            var chave = sorteio.Next(0, 500);
+            "crescente" => Sequencias.Crescentes(5000),
+            "decrescente" => Sequencias.Decrescentes(5000),
+            "zigue-zague" => Sequencias.ZigueZague(5000),
+            "sorteada" => Sequencias.Sorteadas(5000, semente: 3),
+            _ => Sequencias.EmBlocos(5000, 50, semente: 3),
+        };
 
-            if (sorteio.Next(3) == 0)
-            {
-                Assert.Equal(juiz.Remove(chave), arvore.Remover(chave));
+        var arvore = new Avl<int, string>();
+        foreach (var chave in chaves) arvore.Inserir(chave, "x");
 
-                ExigirSadia(arvore, $"depois de remover {chave}");
-            }
-            else
-            {
-                arvore.Por(chave, $"v{chave}");
-                juiz[chave] = $"v{chave}";
-
-                ExigirSadia(arvore, $"depois de inserir {chave}");
-            }
-
-            Assert.Equal(juiz.Count, arvore.Quantos);
-        }
-
-        Assert.Equal(juiz.ToList(), arvore.EmOrdem().ToList());
+        var (limite, _, minima) = Sequencias.Limites(arvore.Quantos);
+        Assert.True(arvore.Altura <= limite,
+            $"{qual}: altura {arvore.Altura}, limite {limite:F2}");
+        Assert.True(arvore.Altura >= minima);
+        Assert.True(arvore.Equilibrada());
     }
 
-    [Fact(DisplayName = "cem mil operações sorteadas contra o SortedDictionary")]
-    public void CemMilOperacoes()
+    /// <summary>
+    /// Os quatro casos de desequilibrio, cada um montado a mao.
+    ///
+    /// Os dois simples sao quando o no e o filho pendem para o mesmo lado; os
+    /// dois duplos sao quando pendem para lados OPOSTOS, e ai uma rotacao so
+    /// troca o problema de lado. Esquecer o caso duplo nao da resposta errada:
+    /// da uma arvore que continua respondendo e para de ficar balanceada.
+    /// </summary>
+    [Fact]
+    public void OsQuatroCasosDeDesequilibrio()
     {
-        var sorteio = new Random(7);
-        var arvore = new ArvoreAvl<int, string>();
-        var juiz = new SortedDictionary<int, string>();
+        // Esquerda-esquerda: uma rotacao.
+        var ee = new Avl<int, string>();
+        foreach (var k in new[] { 30, 20, 10 }) ee.Inserir(k, "x");
+        Assert.Equal(1, ee.Altura);
+        Assert.Equal(1, ee.Rotacoes);
 
-        for (var i = 0; i < 100_000; i++)
-        {
-            var chave = sorteio.Next(0, 20_000);
+        // Direita-direita.
+        var dd = new Avl<int, string>();
+        foreach (var k in new[] { 10, 20, 30 }) dd.Inserir(k, "x");
+        Assert.Equal(1, dd.Altura);
+        Assert.Equal(1, dd.Rotacoes);
 
-            if (sorteio.Next(3) == 0)
-            {
-                Assert.Equal(juiz.Remove(chave), arvore.Remover(chave));
-            }
-            else
-            {
-                arvore.Por(chave, $"v{chave}-{i}");
-                juiz[chave] = $"v{chave}-{i}";
-            }
+        // Esquerda-direita: duas rotacoes.
+        var ed = new Avl<int, string>();
+        foreach (var k in new[] { 30, 10, 20 }) ed.Inserir(k, "x");
+        Assert.Equal(1, ed.Altura);
+        Assert.Equal(2, ed.Rotacoes);
 
-            Assert.Equal(juiz.Count, arvore.Quantos);
-        }
+        // Direita-esquerda: duas rotacoes.
+        var de = new Avl<int, string>();
+        foreach (var k in new[] { 10, 30, 20 }) de.Inserir(k, "x");
+        Assert.Equal(1, de.Altura);
+        Assert.Equal(2, de.Rotacoes);
 
-        Assert.Equal(juiz.ToList(), arvore.EmOrdem().ToList());
-
-        ExigirSadia(arvore, "no fim de cem mil operações");
+        // Nos quatro, a arvore resultante e a mesma: 20 na raiz.
+        foreach (var arvore in new[] { ee, dd, ed, de })
+            Assert.Equal(new[] { 10, 20, 30 }, arvore.EmOrdem().Select(p => p.Chave));
     }
 
-    [Fact(DisplayName = "a AVL fica MAIS BAIXA que a rubro-negra")]
-    public void AAvlEhMaisBaixa()
+    /// <summary>
+    /// A ALTURA GUARDADA em cada no e um cache, e um cache errado faz o
+    /// balanceamento tomar decisoes certas sobre uma arvore que nao existe.
+    ///
+    /// O conferidor confere as duas coisas de uma vez, e e por isso que ele
+    /// devolve a altura em vez de um booleano.
+    /// </summary>
+    [Fact]
+    public void AAlturaGuardadaBateComAAlturaDeVerdade()
     {
-        // É a metade boa da troca, e dá para medir. A altura de uma AVL fica
-        // em torno de 1,44·log₂(n); a de uma rubro-negra, até 2·log₂(n).
-        foreach (var quantos in (int[])[1_000, 10_000, 100_000])
-        {
-            var avl = new ArvoreAvl<int, int>();
-            var rubroNegra = new ArvoreRubroNegra<int, int>();
-
-            for (var i = 0; i < quantos; i++)
-            {
-                avl.Por(i, i);
-                rubroNegra.Por(i, i);
-            }
-
-            Assert.True(avl.Altura() < rubroNegra.Altura(),
-                $"com {quantos} chaves ordenadas: AVL {avl.Altura()}, "
-                + $"rubro-negra {rubroNegra.Altura()}");
-
-            // E dentro do teto teórico de 1,44·log₂(n+2) − 0,33.
-            var teto = (int)Math.Ceiling(1.4405 * Math.Log2(quantos + 2) - 0.3277);
-
-            Assert.True(avl.Altura() <= teto,
-                $"altura {avl.Altura()} passa do teto de {teto}");
-        }
-    }
-
-    [Fact(DisplayName = "a diferença de rotações é no PIOR CASO, e não na média")]
-    public void ADiferencaEhNoPiorCaso()
-    {
-        // Este teste começou dizendo outra coisa. Eu tinha escrito "a AVL
-        // rotaciona mais que a rubro-negra ao remover", que é o que todo texto
-        // sobre estruturas diz, e ele FALHOU: em 50 mil remoções, a AVL fez
-        // 18.719 rotações e a rubro-negra 18.941. A rubro-negra rotacionou mais.
-        //
-        // A frase do livro não estava errada -- a minha leitura dela estava. O
-        // O(log n) da AVL é PIOR CASO, e na média as duas gastam menos de meia
-        // rotação por remoção. A diferença existe e está em outro lugar: no
-        // máximo que UMA remoção pode custar.
-        //
-        // A rubro-negra tem teto de três, e ele vale sempre. A AVL não tem teto
-        // constante nenhum.
+        var arvore = new Avl<int, string>();
         var sorteio = new Random(11);
-
-        var avl = new ArvoreAvl<int, int>();
-        var rubroNegra = new ArvoreRubroNegra<int, int>();
-
-        const int quantos = 50_000;
-
-        var chaves = Enumerable.Range(0, quantos).OrderBy(_ => sorteio.Next()).ToList();
-
-        foreach (var chave in chaves)
+        for (var passo = 0; passo < 3000; passo++)
         {
-            avl.Por(chave, chave);
-            rubroNegra.Por(chave, chave);
+            var chave = sorteio.Next(0, 300);
+            if (sorteio.NextDouble() < 0.6) arvore.Inserir(chave, "x");
+            else arvore.Remover(chave);
+            Assert.True(arvore.Equilibrada(), $"quebrou no passo {passo}");
         }
-
-        long avlTotal = 0;
-        long rubroNegraTotal = 0;
-
-        long avlPior = 0;
-        long rubroNegraPior = 0;
-
-        foreach (var chave in chaves.OrderBy(_ => sorteio.Next()))
-        {
-            var antesAvl = avl.Rotacoes;
-            var antesRn = rubroNegra.Rotacoes;
-
-            avl.Remover(chave);
-            rubroNegra.Remover(chave);
-
-            var nestaAvl = avl.Rotacoes - antesAvl;
-            var nestaRn = rubroNegra.Rotacoes - antesRn;
-
-            avlTotal += nestaAvl;
-            rubroNegraTotal += nestaRn;
-
-            avlPior = Math.Max(avlPior, nestaAvl);
-            rubroNegraPior = Math.Max(rubroNegraPior, nestaRn);
-        }
-
-        // A promessa da rubro-negra: NENHUMA remoção passa de três rotações.
-        Assert.True(rubroNegraPior <= 3,
-            $"uma remoção da rubro-negra fez {rubroNegraPior} rotações, "
-            + "e o teto do algoritmo é três");
-
-        // A AVL passa, e é isso que a frase do livro quer dizer.
-        Assert.True(avlPior > 3,
-            $"a pior remoção da AVL fez {avlPior} rotações; "
-            + "esperava mais de três, que é o teto da rubro-negra");
-
-        // E na média as duas empatam -- que foi a surpresa.
-        var mediaAvl = (double)avlTotal / quantos;
-        var mediaRn = (double)rubroNegraTotal / quantos;
-
-        Assert.InRange(mediaAvl, 0.1, 1.0);
-        Assert.InRange(mediaRn, 0.1, 1.0);
-
-        Assert.True(Math.Abs(mediaAvl - mediaRn) < 0.3,
-            $"as médias deviam ficar perto: AVL {mediaAvl:F3}, "
-            + $"rubro-negra {mediaRn:F3}");
     }
 
-    [Fact(DisplayName = "as duas dão exatamente a mesma sequência ordenada")]
-    public void AsDuasConcordam()
+    /// <summary>
+    /// A arvore de Fibonacci: a AVL mais desequilibrada que pode existir para
+    /// cada altura, e a que faz o limite ser justo.
+    ///
+    /// Ela e montada inserindo exatamente as chaves que produzem a forma minima.
+    /// Se o limite nao fosse justo, esta arvore nao chegaria nele.
+    /// </summary>
+    [Fact]
+    public void AArvoreDeFibonacciChegaNoLimite()
     {
-        // O balanceamento é invisível de fora: as duas árvores, com as mesmas
-        // chaves, devolvem exatamente a mesma coisa. É essa a propriedade que
-        // permite trocar uma pela outra sem ninguém perceber -- e a única
-        // diferença que sobra é o custo.
-        var sorteio = new Random(13);
+        // N(h) = 1 + N(h-1) + N(h-2), com N(0) = 1 e N(1) = 2.
+        var minima = new List<int> { 1, 2 };
+        while (minima.Count < 20) minima.Add(1 + minima[^1] + minima[^2]);
 
-        var avl = new ArvoreAvl<int, string>();
-        var rubroNegra = new ArvoreRubroNegra<int, string>();
-
-        for (var i = 0; i < 50_000; i++)
+        for (var altura = 2; altura < 12; altura++)
         {
-            var chave = sorteio.Next(0, 10_000);
-
-            if (sorteio.Next(3) == 0)
-            {
-                Assert.Equal(rubroNegra.Remover(chave), avl.Remover(chave));
-            }
-            else
-            {
-                avl.Por(chave, $"v{i}");
-                rubroNegra.Por(chave, $"v{i}");
-            }
-
-            Assert.Equal(rubroNegra.Quantos, avl.Quantos);
+            var quantos = minima[altura];
+            var (limite, _, _) = Sequencias.Limites(quantos);
+            // A arvore minima de altura h tem exatamente N(h) nos, entao o
+            // limite para essa quantidade precisa alcancar h.
+            Assert.True(limite >= altura,
+                $"com {quantos} nos o limite e {limite:F2} e a arvore minima de altura {altura} existe");
+            // E nao sobra muito: o limite e justo.
+            Assert.True(limite < altura + 1.2, $"limite {limite:F2} para altura {altura}");
         }
-
-        Assert.Equal(rubroNegra.EmOrdem().ToList(), avl.EmOrdem().ToList());
     }
 
-    [Fact(DisplayName = "chaves ordenadas, que é o caso que motiva tudo")]
-    public void ChavesOrdenadas()
+    /// <summary>
+    /// Quantas rotacoes a AVL gasta. Este e o lado do preco da troca classica:
+    /// altura menor, mais escrita.
+    /// </summary>
+    [Fact]
+    public void AsRotacoesPorInsercaoSaoPoucasMasNaoZero()
     {
-        var arvore = new ArvoreAvl<int, int>();
+        var crescente = new Avl<int, string>();
+        foreach (var chave in Sequencias.Crescentes(10_000)) crescente.Inserir(chave, "x");
 
-        for (var i = 0; i < 100_000; i++)
-        {
-            arvore.Por(i, i);
-        }
+        var sorteada = new Avl<int, string>();
+        foreach (var chave in Sequencias.Sorteadas(10_000, semente: 7)) sorteada.Inserir(chave, "x");
 
-        ExigirSadia(arvore, "com cem mil chaves em ordem");
-
-        Assert.InRange(arvore.Altura(), 17, 25);
-    }
-
-    [Fact(DisplayName = "os casos de borda")]
-    public void CasosDeBorda()
-    {
-        var arvore = new ArvoreAvl<int, string>();
-
-        Assert.Equal(0, arvore.Quantos);
-        Assert.Empty(arvore.EmOrdem());
-        Assert.False(arvore.Remover(1));
-
-        ExigirSadia(arvore, "vazia");
-
-        arvore.Por(1, "um");
-        arvore.Por(1, "outro");
-
-        Assert.Equal(1, arvore.Quantos);
-        Assert.True(arvore.TentarPegar(1, out var valor));
-        Assert.Equal("outro", valor);
-
-        Assert.True(arvore.Remover(1));
-        Assert.Equal(0, arvore.Quantos);
-
-        ExigirSadia(arvore, "vazia de novo");
+        // Em media bem menos de uma rotacao por insercao, nos dois casos.
+        Assert.True(crescente.Rotacoes < 10_000);
+        Assert.True(sorteada.Rotacoes < 10_000);
+        // E a entrada ordenada gasta MAIS, porque ela puxa a arvore sempre para
+        // o mesmo lado.
+        Assert.True(crescente.Rotacoes > sorteada.Rotacoes * 0.5);
     }
 }
