@@ -15,7 +15,7 @@ namespace Conde.Arvore.Testes;
 public class ContratoTest
 {
     public static TheoryData<string> Estruturas() =>
-        ["busca", "avl", "rubro", "treap", "pulo"];
+        ["busca", "avl", "rubro", "treap", "pulo", "classica", "avl antiga"];
 
     internal static IDicionario<int, string> Criar(string nome) => nome switch
     {
@@ -24,6 +24,8 @@ public class ContratoTest
         "rubro" => new Rubro<int, string>(),
         "treap" => new Treap<int, string>(semente: 7),
         "pulo" => new Pulo<int, string>(semente: 7),
+        "classica" => new Classica<int, string>(),
+        "avl antiga" => new AvlAntiga<int, string>(),
         _ => throw new ArgumentOutOfRangeException(nameof(nome)),
     };
 
@@ -43,6 +45,12 @@ public class ContratoTest
                 break;
             case Pulo<int, string> pulo:
                 Assert.True(pulo.Consistente(), "a lista de pulos ficou inconsistente");
+                break;
+            case Classica<int, string> classica:
+                Assert.Empty(classica.Conferir());
+                break;
+            case AvlAntiga<int, string> antiga:
+                Assert.Empty(antiga.Conferir());
                 break;
         }
     }
