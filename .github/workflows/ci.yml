@@ -21,13 +21,36 @@ jobs:
         with:
           dotnet-version: '8.0.x'
 
-      # Dois juizes: o SortedDictionary, que e a mesma estrutura, e as cinco
-      # regras da arvore -- conferidas depois de CADA operacao.
+      # Sao dois juizes ao mesmo tempo, e o segundo e o que importa.
+      #
+      # O primeiro e uma lista ordenada que nao sabe balancear nada: ela
+      # responde pela definicao, e o proprio juiz e conferido contra o
+      # SortedDictionary da plataforma, que e uma rubro-negra escrita por outra
+      # gente.
+      #
+      # O segundo e a INVARIANTE de cada estrutura, conferida depois de CADA
+      # operacao. Isso nao e zelo: um dicionario ordenado errado quase sempre
+      # responde certo. Ele devolve as chaves, na ordem, com os valores certos,
+      # e o que quebrou foi a garantia de altura. Comparar o resultado final
+      # pega o erro quando ele ja virou resposta errada; conferir a cada passo
+      # pega a hora em que ele nasce.
+      #
+      # E a comparacao com o juiz nao e so por amostra: todas as 5.040 ordens de
+      # insercao de 7 chaves, e, para a remocao da rubro-negra, todos os pares
+      # de ordem de insercao e de remocao ate 5 chaves.
       - name: testes
         run: dotnet test testes/Arvore.Testes/Arvore.Testes.csproj -c Release --nologo -v q
 
-      # A medida da altura e das rotacoes roda para REGISTRAR os numeros. Nao
-      # ha asseveracao de tempo aqui: teste de relogio em maquina compartilhada
-      # falha sem nada ter piorado.
-      - name: a altura e as rotacoes
-        run: dotnet run --project ferramentas/Medidor/Medidor.csproj -c Release --nologo -- rotacoes
+      # As medidas rodam para REGISTRAR numeros. O que se mede e altura e
+      # contagem de comparacao, que nao dependem de maquina.
+      - name: altura por estrutura e por entrada
+        run: dotnet run --project ferramentas/Medidor/Medidor.csproj -c Release -- altura
+
+      - name: comparacoes por busca
+        run: dotnet run --project ferramentas/Medidor/Medidor.csproj -c Release -- busca
+
+      - name: rotacoes por insercao
+        run: dotnet run --project ferramentas/Medidor/Medidor.csproj -c Release -- escrita
+
+      - name: niveis da lista de pulos
+        run: dotnet run --project ferramentas/Medidor/Medidor.csproj -c Release -- niveis
