@@ -1,244 +1,220 @@
-using System.Diagnostics;
 using Conde.Arvore;
 
-namespace Conde.Arvore.Ferramentas;
+namespace Conde.Arvore.Medidor;
 
 /// <summary>
-/// Mede o que a árvore promete: a altura e o número de rotações.
+/// As medidas. O que se mede e ALTURA e CONTAGEM DE COMPARACAO, que sao
+/// propriedades do algoritmo e dao o mesmo numero em qualquer maquina.
+///
+/// Tempo de relogio nao entra. Ele depende de cache, de frequencia e de quem
+/// mais esta rodando, e numa comparacao entre estruturas de arvore ele atrapalha
+/// mais do que informa.
 /// </summary>
-/// <remarks>
-/// <para>
-/// Uma rubro-negra faz três promessas, e as três são números:
-/// </para>
-/// <list type="number">
-///   <item><description>a altura fica em <c>O(log n)</c>, com teto de 2·log₂(n+1);</description></item>
-///   <item><description>uma inserção faz no máximo <b>duas</b> rotações;</description></item>
-///   <item><description>uma remoção faz no máximo <b>três</b>.</description></item>
-/// </list>
-/// <para>
-/// As duas últimas são o que a separam de uma AVL, que mantém um equilíbrio
-/// melhor e paga com <c>O(log n)</c> rotações por remoção. Numa estrutura que
-/// muda muito, a rubro-negra ganha; numa que só consulta, a AVL.
-/// </para>
-/// </remarks>
 public static class Programa
 {
     public static int Main(string[] argumentos)
     {
-        var comando = argumentos.Length > 0 ? argumentos[0] : "tudo";
-
-        if (comando is "tudo" or "altura")
+        var qual = argumentos.Length > 0 ? argumentos[0] : "tudo";
+        switch (qual)
         {
-            Altura();
+            case "altura": Alturas(); break;
+            case "busca": Buscas(); break;
+            case "escrita": Escritas(); break;
+            case "hibbard": Hibbard(); break;
+            case "niveis": Niveis(); break;
+            case "tudo": Alturas(); Buscas(); Escritas(); Hibbard(); Niveis(); break;
+            default:
+                Console.Error.WriteLine("medidas: altura, busca, escrita, hibbard, niveis, tudo");
+                return 1;
         }
-
-        if (comando is "tudo" or "rotacoes")
-        {
-            Console.WriteLine();
-            Rotacoes();
-        }
-
-        if (comando is "tudo" or "contra")
-        {
-            Console.WriteLine();
-            ContraODotnet();
-        }
-
         return 0;
     }
 
-    private static void Altura()
+    private const int Quantas = 100_000;
+
+    private static (string Nome, List<int> Chaves)[] Entradas() =>
+    [
+        ("sorteada", Sequencias.Sorteadas(Quantas, 3)),
+        ("crescente", Sequencias.Crescentes(Quantas)),
+        ("decrescente", Sequencias.Decrescentes(Quantas)),
+        ("zigue-zague", Sequencias.ZigueZague(Quantas)),
+        ("em blocos", Sequencias.EmBlocos(Quantas, 100, 3)),
+    ];
+
+    private static IDicionario<int, int> Criar(string nome) => nome switch
     {
-        Console.WriteLine("a altura, contra o teto teórico de 2·log₂(n+1)");
-        Console.WriteLine();
-        Console.WriteLine("nós".PadLeft(10) + "ordenadas".PadLeft(12)
-            + "sorteadas".PadLeft(12) + "teto".PadLeft(8)
-            + "ideal".PadLeft(8) + "  (ordenadas numa árvore sem balanço)");
-        Console.WriteLine(new string('-', 74));
+        "busca" => new Busca<int, int>(),
+        "avl" => new Avl<int, int>(),
+        "rubro" => new Rubro<int, int>(),
+        "treap" => new Treap<int, int>(semente: 101),
+        "pulo" => new Pulo<int, int>(semente: 101),
+        _ => throw new ArgumentOutOfRangeException(nameof(nome)),
+    };
 
-        var sorteio = new Random(20260929);
+    private static readonly string[] Nomes = ["busca", "avl", "rubro", "treap", "pulo"];
 
-        foreach (var quantos in (int[])[10, 100, 1_000, 10_000, 100_000, 1_000_000])
+    /// <summary>
+    /// A tabela principal: altura de cada estrutura em cada sequencia de
+    /// entrada.
+    ///
+    /// E a tabela que justifica o repositorio inteiro. A arvore sem
+    /// balanceamento vai a 99.999 em tres das cinco entradas, e as tres sao
+    /// ordens que aparecem o tempo todo na vida real.
+    /// </summary>
+    private static void Alturas()
+    {
+        Console.WriteLine($"== altura, em arestas, com {Quantas:N0} chaves ==");
+        Console.Write($"{"entrada",-14}");
+        foreach (var nome in Nomes) Console.Write($"{nome,10}");
+        Console.WriteLine($"{"limite AVL",12}{"limite RN",12}{"piso",8}");
+
+        var (avl, rubro, minima) = Sequencias.Limites(Quantas);
+        foreach (var (entrada, chaves) in Entradas())
         {
-            var emOrdem = new ArvoreRubroNegra<int, int>();
-
-            for (var i = 0; i < quantos; i++)
+            Console.Write($"{entrada,-14}");
+            foreach (var nome in Nomes)
             {
-                emOrdem.Por(i, i);
+                // A arvore sem balanceamento vira lista encadeada e a recursao
+                // da travessia estoura a pilha; a altura sai por contagem direta.
+                var estrutura = Criar(nome);
+                foreach (var chave in chaves) estrutura.Inserir(chave, 0);
+                Console.Write($"{estrutura.Altura,10:N0}");
             }
+            Console.WriteLine($"{avl,12:F1}{rubro,12:F1}{minima,8:F0}");
+        }
+        Console.WriteLine();
+        Console.WriteLine("as tres entradas do meio sao as mais comuns da vida real: identificadores que");
+        Console.WriteLine("crescem, arquivos ja ordenados, carimbos de tempo. A arvore sem balanceamento");
+        Console.WriteLine("responde tudo certo nas tres e gasta mais memoria que um vetor para fazer pior");
+        Console.WriteLine();
+    }
 
-            var embaralhada = new ArvoreRubroNegra<int, int>();
+    /// <summary>
+    /// Quantas comparacoes custa uma busca, em media, em cada estrutura.
+    ///
+    /// E a medida que o usuario sente. A altura e o pior caso; isto e o tipico.
+    /// </summary>
+    private static void Buscas()
+    {
+        Console.WriteLine($"== comparacoes por busca bem-sucedida, media de 10.000, com {Quantas:N0} chaves ==");
+        Console.WriteLine($"{"estrutura",-12}{"sorteada",12}{"crescente",12}{"piso log2(n)",14}");
 
-            foreach (var chave in Enumerable.Range(0, quantos).OrderBy(_ => sorteio.Next()))
+        var sorteio = new Random(53);
+        foreach (var nome in Nomes)
+        {
+            Console.Write($"{nome,-12}");
+            foreach (var entrada in new[] { "sorteada", "crescente" })
             {
-                embaralhada.Por(chave, chave);
+                var chaves = entrada == "sorteada"
+                    ? Sequencias.Sorteadas(Quantas, 3)
+                    : Sequencias.Crescentes(Quantas);
+
+                var estrutura = Criar(nome);
+                foreach (var chave in chaves) estrutura.Inserir(chave, 0);
+
+                long total = 0;
+                for (var i = 0; i < 10_000; i++)
+                {
+                    estrutura.Achar(chaves[sorteio.Next(chaves.Count)], out _);
+                    total += estrutura.ComparacoesDaUltima;
+                }
+                Console.Write($"{total / 10_000.0,12:F1}");
             }
+            Console.WriteLine($"{Math.Log2(Quantas),14:F1}");
+        }
+        Console.WriteLine();
+    }
 
-            var teto = 2 * (int)Math.Ceiling(Math.Log2(quantos + 1));
-            var ideal = (int)Math.Ceiling(Math.Log2(quantos + 1));
+    /// <summary>
+    /// O outro lado da troca: quanto cada estrutura ESCREVE para manter a altura
+    /// baixa.
+    ///
+    /// Rotacao mexe em ponteiro e custa; recoloracao so troca um bit. A AVL fica
+    /// mais baixa e a LLRB gira mais, o que e contraintuitivo e e justamente o
+    /// numero que vale registrar.
+    /// </summary>
+    private static void Escritas()
+    {
+        Console.WriteLine($"== rotacoes por insercao, com {Quantas:N0} chaves ==");
+        Console.WriteLine($"{"entrada",-14}{"AVL",12}{"LLRB",12}{"treap",12}{"AVL/ins",10}{"LLRB/ins",10}");
 
-            Console.WriteLine(
-                quantos.ToString().PadLeft(10)
-                + emOrdem.Altura().ToString().PadLeft(12)
-                + embaralhada.Altura().ToString().PadLeft(12)
-                + teto.ToString().PadLeft(8)
-                + ideal.ToString().PadLeft(8)
-                + $"   {quantos}");
+        foreach (var (entrada, chaves) in Entradas())
+        {
+            var avl = new Avl<int, int>();
+            foreach (var chave in chaves) avl.Inserir(chave, 0);
+
+            var rubro = new Rubro<int, int>();
+            foreach (var chave in chaves) rubro.Inserir(chave, 0);
+
+            var treap = new Treap<int, int>(semente: 101);
+            foreach (var chave in chaves) treap.Inserir(chave, 0);
+
+            Console.WriteLine($"{entrada,-14}{avl.Rotacoes,12:N0}{rubro.Rotacoes,12:N0}{treap.Rotacoes,12:N0}" +
+                              $"{avl.Rotacoes / (double)Quantas,10:F2}{rubro.Rotacoes / (double)Quantas,10:F2}");
         }
 
+        var contador = new Rubro<int, int>();
+        foreach (var chave in Sequencias.Sorteadas(Quantas, 3)) contador.Inserir(chave, 0);
         Console.WriteLine();
-        Console.WriteLine("A última coluna é o que uma árvore de busca SEM balanceamento");
-        Console.WriteLine("teria com chaves ordenadas: uma corrente, e a busca custando n.");
+        Console.WriteLine($"a LLRB ainda faz {contador.Recoloracoes:N0} recoloracoes, que nao mexem em ponteiro nenhum");
+        Console.WriteLine("e sao muito mais baratas que uma rotacao");
+        Console.WriteLine();
     }
 
-    private static void Rotacoes()
+    /// <summary>
+    /// A degeneracao de Hibbard: remover sempre pelo sucessor desequilibra a
+    /// arvore sem balanceamento com o tempo.
+    ///
+    /// Hibbard mostrou isso em 1962 e a conta nao e obvia: a altura media vai
+    /// para raiz de n em vez de log n, porque remover sempre pelo sucessor vai
+    /// esvaziando o lado esquerdo.
+    /// </summary>
+    private static void Hibbard()
     {
-        Console.WriteLine("rotações por operação");
-        Console.WriteLine();
-        Console.WriteLine("operações".PadLeft(12) + "inserções".PadLeft(12)
-            + "por inserção".PadLeft(14) + "remoções".PadLeft(12)
-            + "por remoção".PadLeft(14));
-        Console.WriteLine(new string('-', 66));
+        Console.WriteLine("== a degeneracao de Hibbard, de 1962 ==");
+        Console.WriteLine("n chaves sorteadas, depois ciclos de remover uma viva e inserir uma nova");
+        Console.WriteLine($"{"n",8}{"ciclos",12}{"caminho inicial",17}{"caminho final",15}{"2 ln n",10}{"raiz(n)",10}");
 
-        var sorteio = new Random(7);
-
-        foreach (var quantas in (int[])[1_000, 10_000, 100_000, 1_000_000])
+        foreach (var n in new[] { 64, 128, 256, 512 })
         {
-            var arvore = new ArvoreRubroNegra<int, int>();
+            var ciclos = 50 * n * n;
+            var arvore = new Busca<int, int>();
+            var operacoes = Sequencias.Hibbard(n, ciclos, semente: 29);
 
-            var insercoes = 0;
-            var remocoes = 0;
-
-            long girosDeInsercao = 0;
-            long girosDeRemocao = 0;
-
-            for (var i = 0; i < quantas; i++)
+            var montadas = 0;
+            double inicial = 0;
+            foreach (var op in operacoes)
             {
-                var chave = sorteio.Next(0, quantas / 2 + 1);
-
-                var antes = arvore.Rotacoes;
-
-                if (sorteio.Next(3) == 0)
-                {
-                    arvore.Remover(chave);
-
-                    remocoes++;
-                    girosDeRemocao += arvore.Rotacoes - antes;
-                }
-                else
-                {
-                    arvore.Por(chave, i);
-
-                    insercoes++;
-                    girosDeInsercao += arvore.Rotacoes - antes;
-                }
+                if (op > 0) arvore.Inserir(op, 0); else arvore.Remover(-op);
+                if (++montadas == n) inicial = arvore.CaminhoMedio();
             }
 
-            Console.WriteLine(
-                quantas.ToString().PadLeft(12)
-                + insercoes.ToString().PadLeft(12)
-                + $"{(double)girosDeInsercao / insercoes:F3}".PadLeft(14)
-                + remocoes.ToString().PadLeft(12)
-                + $"{(double)girosDeRemocao / Math.Max(1, remocoes):F3}".PadLeft(14));
+            Console.WriteLine($"{n,8}{ciclos,12:N0}{inicial,17:F2}{arvore.CaminhoMedio(),15:F2}" +
+                              $"{2 * Math.Log(n),10:F2}{Math.Sqrt(n),10:F2}");
         }
-
         Console.WriteLine();
-        Console.WriteLine("A promessa é no máximo 2 por inserção e 3 por remoção, e o que");
-        Console.WriteLine("se mede é bem menos: a maioria das operações não rotaciona nada.");
-        Console.WriteLine("É isso que a separa de uma AVL, que paga O(log n) por remoção.");
     }
 
-    private static void ContraODotnet()
+    /// <summary>
+    /// A distribuicao de niveis da lista de pulos: cada nivel com perto de
+    /// metade do de baixo, que e de onde vem o tempo logaritmico.
+    /// </summary>
+    private static void Niveis()
     {
-        Console.WriteLine("contra o SortedDictionary, que é a mesma estrutura");
-        Console.WriteLine();
-        Console.WriteLine("operação".PadRight(20) + "nós".PadLeft(10)
-            + "meu".PadLeft(12) + ".NET".PadLeft(12) + "razão".PadLeft(10));
-        Console.WriteLine(new string('-', 64));
+        Console.WriteLine($"== niveis da lista de pulos, com {Quantas:N0} chaves ==");
+        Console.WriteLine($"{"nivel",8}{"nos",12}{"razao",10}{"esperado",12}");
 
-        foreach (var quantos in (int[])[10_000, 100_000, 1_000_000])
+        var pulo = new Pulo<int, int>(semente: 101);
+        for (var chave = 0; chave < Quantas; chave++) pulo.Inserir(chave, 0);
+
+        var porNivel = pulo.PorNivel();
+        for (var nivel = 0; nivel < porNivel.Count; nivel++)
         {
-            var chaves = Enumerable.Range(0, quantos)
-                .OrderBy(_ => Guid.NewGuid())
-                .ToArray();
-
-            var meu = new ArvoreRubroNegra<int, int>();
-            var dele = new SortedDictionary<int, int>();
-
-            var meuInserir = Cronometrar(() =>
-            {
-                foreach (var chave in chaves)
-                {
-                    meu.Por(chave, chave);
-                }
-            });
-
-            var deleInserir = Cronometrar(() =>
-            {
-                foreach (var chave in chaves)
-                {
-                    dele[chave] = chave;
-                }
-            });
-
-            Linha("inserir", quantos, meuInserir, deleInserir);
-
-            var meuBuscar = Cronometrar(() =>
-            {
-                foreach (var chave in chaves)
-                {
-                    meu.TentarPegar(chave, out _);
-                }
-            });
-
-            var deleBuscar = Cronometrar(() =>
-            {
-                foreach (var chave in chaves)
-                {
-                    dele.TryGetValue(chave, out _);
-                }
-            });
-
-            Linha("buscar", quantos, meuBuscar, deleBuscar);
-
-            var meuPercorrer = Cronometrar(() =>
-            {
-                foreach (var _ in meu.EmOrdem())
-                {
-                }
-            });
-
-            var delePercorrer = Cronometrar(() =>
-            {
-                foreach (var _ in dele)
-                {
-                }
-            });
-
-            Linha("percorrer em ordem", quantos, meuPercorrer, delePercorrer);
+            var razao = nivel == 0 ? 1.0 : porNivel[nivel] / (double)porNivel[nivel - 1];
+            Console.WriteLine($"{nivel,8}{porNivel[nivel],12:N0}{razao,10:F3}{Quantas / Math.Pow(2, nivel),12:F0}");
         }
-
         Console.WriteLine();
-        Console.WriteLine("Não é para ganhar: o SortedDictionary é a mesma estrutura, escrita");
-        Console.WriteLine("por quem faz isso profissionalmente. Uma razão de duas ou três");
-        Console.WriteLine("vezes quer dizer que o algoritmo está certo e falta o acabamento.");
-    }
-
-    private static void Linha(string nome, int quantos, double meu, double dele)
-    {
-        Console.WriteLine(nome.PadRight(20)
-            + quantos.ToString().PadLeft(10)
-            + $"{meu:F1} ms".PadLeft(12)
-            + $"{dele:F1} ms".PadLeft(12)
-            + $"{meu / Math.Max(0.001, dele):F1}x".PadLeft(10));
-    }
-
-    private static double Cronometrar(Action acao)
-    {
-        var relogio = Stopwatch.StartNew();
-
-        acao();
-
-        return relogio.Elapsed.TotalMilliseconds;
+        Console.WriteLine($"niveis: {pulo.Niveis}, e log2({Quantas:N0}) e {Math.Log2(Quantas):F1}");
+        Console.WriteLine();
     }
 }
