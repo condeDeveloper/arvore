@@ -1,185 +1,200 @@
 # arvore
 
-Uma árvore rubro-negra do zero em C# e .NET 8 — a estrutura que segura o
-`SortedDictionary` do .NET, o `TreeMap` do Java e o `std::map` do C++.
+Dicionários ordenados do zero em C# e .NET 8: árvore de busca sem
+balanceamento, AVL, rubro-negra inclinada para a esquerda, treap e lista de
+pulos. O juiz é uma lista ordenada que não sabe balancear nada, e a invariante
+de cada estrutura é conferida depois de **cada** operação.
+
+```
+$ dotnet medidor.dll busca
+
+== comparacoes por busca bem-sucedida, media de 10.000, com 100,000 chaves ==
+estrutura       sorteada   crescente  piso log2(n)
+busca               20.4     49813.2          16.6
+avl                 16.0        15.7          16.6
+rubro               16.2        15.7          16.6
+treap               20.5        21.8          16.6
+pulo                30.9        31.8          16.6
+```
+
+A árvore sem balanceamento gasta **49.813 comparações** por busca quando as
+chaves chegaram em ordem. Ela responde tudo certo. É três mil vezes a AVL.
+
+## Responder certo não é o problema
+
+Um dicionário ordenado errado é especialmente difícil de pegar porque ele quase
+sempre **responde certo**. Ele devolve as chaves, na ordem, com os valores
+certos. O que quebrou foi a garantia de altura, e nenhuma resposta denuncia
+isso.
+
+Por isso aqui há dois juízes ao mesmo tempo, e o segundo é o que importa.
+
+O primeiro é uma lista ordenada que responde pela definição, sem rotação, sem
+cor e sem caso a analisar — e ela mesma é conferida contra o `SortedDictionary`
+da plataforma, que é uma rubro-negra escrita por outra gente.
+
+O segundo é a **invariante de cada estrutura**, conferida depois de cada
+operação: o equilíbrio e a altura guardada na AVL, as quatro regras da
+rubro-negra, a propriedade de monte na treap, e o fato de cada nível da lista
+de pulos ser um subconjunto ordenado do nível de baixo. Comparar o resultado
+final pega o erro quando ele já virou resposta errada; conferir a cada passo
+pega a hora em que ele nasce.
+
+E a comparação não é por amostra: todas as **5.040** ordens de inserção de 7
+chaves, cada uma seguida de remoção em ordem embaralhada; e, para a remoção da
+rubro-negra, que é a parte difícil, todos os pares de ordem de inserção e de
+remoção até 5 chaves — 14.400 pares por tamanho.
+
+## A tabela que justifica o repositório
 
 ```
 $ dotnet medidor.dll altura
 
-       nós   ordenadas   sorteadas    teto   ideal  (numa árvore sem balanço)
-------------------------------------------------------------------------------
-        10           5           4       8       4   10
-       100          11           8      14       7   100
-      1000          17          12      20      10   1000
-     10000          24          16      28      14   10000
-    100000          31          20      34      17   100000
-   1000000          37          25      40      20   1000000
+== altura, em arestas, com 100,000 chaves ==
+entrada            busca       avl     rubro     treap      pulo  limite AVL   limite RN    piso
+sorteada              36        19        22        36        15        22.6        33.2      16
+crescente         99,999        16        16        42        15        22.6        33.2      16
+decrescente       99,999        16        21        42        15        22.6        33.2      16
+zigue-zague       99,999        20        21        42        15        22.6        33.2      16
+em blocos          1,304        18        21        38        15        22.6        33.2      16
 ```
 
-A última coluna é o que uma árvore de busca **sem** balanceamento teria com
-chaves ordenadas: uma corrente de um milhão de nós, e a busca custando um milhão
-de passos em vez de 37.
+As três entradas do meio não são casos de borda: são as ordens mais comuns que
+existem. Identificadores que crescem. Registros importados de um arquivo
+ordenado. Carimbos de tempo. Uma árvore de busca testada só com chaves
+sorteadas está testada contra a entrada que ela nunca vai receber.
 
-E dados ordenados não são caso raro — são o **comum**. Chaves que chegam de um
-banco, de um arquivo, de um contador: quase tudo chega ordenado, e é justamente
-aí que a árvore ingênua desaba.
+Repare na linha "em blocos", que é o formato de dados vindos de vários arquivos
+ordenados concatenados: 1.304. Não é a catástrofe das outras três e é oitenta
+vezes o logaritmo. É o caso que ninguém testa porque ele não é nem sorteado nem
+ordenado.
 
-## Os dois juízes
+E repare que a entrada crescente é o **melhor** caso da AVL e da rubro-negra:
+altura 16, que é exatamente o piso de qualquer estrutura por comparação. A mesma
+entrada que destrói uma estrutura deixa a outra perfeita.
 
-**O `SortedDictionary` do .NET**, que é, ele mesmo, uma árvore rubro-negra — a
-comparação é contra uma implementação madura da **mesma** estrutura, exata e
-ilimitada. São **100.000 operações sorteadas** (inserir, remover, buscar,
-conferir) com os dois lado a lado.
+A coluna da lista de pulos conta níveis e não arestas de árvore, então ela não é
+comparável com as outras nessa escala. A medida comparável dela é a de
+comparações, logo acima: 31, contra 16 das árvores balanceadas. A simplicidade
+do código custa perto do dobro de comparações.
 
-**As próprias cinco regras**, conferidas depois de **cada** operação.
+## O que as medidas me corrigiram
 
-E o segundo é mais importante que o primeiro, por um motivo que vale dizer: uma
-árvore rubro-negra com um caso de remoção errado **continua funcionando**. Ela
-guarda, busca e devolve tudo certo; só vai ficando torta, e a busca que custava
-20 passos passa a custar mil. O `SortedDictionary` nunca pegaria isso — as duas
-respondem igual.
+**A árvore degenerada estoura a pilha de quem tenta medi-la.** A primeira versão
+de `Altura` era recursiva, de uma linha. Ela morreu ao medir a árvore de cem mil
+chaves em ordem crescente, com 24.081 quadros empilhados. O erro é didático,
+porque ele **é** o assunto: uma árvore degenerada não fica só lenta, ela fica
+funda demais para qualquer algoritmo recursivo que ande nela, inclusive os que
+servem para diagnosticá-la. Nas balanceadas o problema não existe, e por isso só
+essa classe precisou de pilha própria.
 
-O verificador é o que transforma *"a árvore funciona"* em *"a árvore é uma
-rubro-negra"*.
-
-## As cinco regras
-
-1. A raiz é preta.
-2. As folhas (os nulos) são pretas.
-3. Um nó vermelho tem os dois filhos pretos — **nunca dois vermelhos seguidos**.
-4. Todo caminho da raiz a uma folha passa pelo **mesmo número** de nós pretos.
-5. (A cor é uma informação só: um bit por nó.)
-
-As regras 3 e 4 juntas dão o resultado: **o caminho mais longo tem no máximo o
-dobro do mais curto**. Isso basta para garantir altura `O(log n)`, e é muito mais
-barato de manter que o equilíbrio perfeito de uma AVL.
-
-## As rotações, medidas
+**A degeneração de Hibbard é real e invisível na escala em que se testa.** Em
+1962 Hibbard mostrou que remover sempre pelo sucessor piora a árvore com o
+tempo. Eu ia escrever isso como fato e medi o contrário: com mil chaves e 256
+mil ciclos de atualização, o comprimento médio de caminho **caiu** de 11,5 para
+9,9. O efeito só aparece no regime quadrático:
 
 ```
-$ dotnet medidor.dll rotacoes
+$ dotnet medidor.dll hibbard
 
-   operações   inserções  por inserção    remoções   por remoção
-----------------------------------------------------------------
-        1000         677         0.328         323         0.127
-      100000       66383         0.337       33617         0.126
-     1000000      665710         0.336       334290        0.123
+       n      ciclos  caminho inicial  caminho final    2 ln n   raiz(n)
+      64     204,800             5.42           5.41      8.32      8.00
+     128     819,200             6.97           7.33      9.70     11.31
+     256   3,276,800             8.59           8.34     11.09     16.00
+     512  13,107,200            10.10          12.27     12.48     22.63
 ```
 
-A promessa é **no máximo 2 por inserção e 3 por remoção**, independentemente do
-tamanho — e o que se mede é 0,34 e 0,12: a maioria das operações não rotaciona
-nada.
+Com 64 chaves e duzentos mil ciclos, nada. Com 512 e treze milhões, o caminho
+médio sobe 21%. São precisas da ordem de n² atualizações, e é por isso que o
+fenômeno é tão fácil de não ver.
 
-## A frase do livro que eu li errado
+**E eu errei três vezes a própria montagem desse experimento.** A primeira
+versão inseria chaves em ordem crescente, então a árvore já nascia lista
+encadeada e a medida mostrava a degeneração da ordem de chegada, não a de
+Hibbard. A segunda sorteava entre inserir e remover com a mesma chance, o que é
+um passeio aleatório: a população vagueava, e dez mil operações terminaram com
+116 chaves. A terceira dimensionou o universo de chaves pela população em vez do
+total, e o sorteio de chave inédita entrou em laço infinito.
 
-O projeto tem também uma **AVL**, e ela está aqui para que a comparação seja
-medida em vez de afirmada. Todo texto sobre estruturas diz alguma versão de *"a
-AVL é mais equilibrada e a rubro-negra rotaciona menos"*, e eu escrevi um teste
-afirmando a segunda metade.
-
-**Ele falhou.** Em 50 mil remoções sorteadas:
-
-| | rotações totais | média por remoção | pior remoção |
-|---|---|---|---|
-| AVL | 18.719 | 0,374 | **mais de 3** |
-| rubro-negra | 18.941 | 0,379 | **3, sempre** |
-
-A rubro-negra rotacionou **mais** no total. A frase do livro não estava errada —
-a minha leitura dela estava. O `O(log n)` da AVL é **pior caso**, e na média as
-duas gastam menos de meia rotação por remoção.
-
-A diferença existe e está em outro lugar: no **máximo que uma remoção pode
-custar**. A rubro-negra tem teto de três, e ele vale sempre; a AVL não tem teto
-constante nenhum. Para um sistema em que a latência do pior caso importa — um
-escalonador, um banco de dados — isso é a diferença toda. Para a média, não é
-nada.
-
-O teste agora mede as duas coisas e afirma as duas: que a rubro-negra **nunca**
-passa de três, que a AVL passa, e que as médias ficam a menos de 0,3 uma da
-outra.
-
-E a outra metade da frase, essa sim, se confirmou: a AVL fica mais baixa. Com
-cem mil chaves ordenadas, altura 20 contra 31.
-
-## A rotação, que é a única coisa que dá para fazer
+**A LLRB gira mais que a AVL, apesar da condição mais frouxa.**
 
 ```
-     x                y
-    / \              / \
-   a   y    ──►     x   c
-      / \          / \
-     b   c        a   b
+$ dotnet medidor.dll escrita
 
-  a x b y c   =   a x b y c
+entrada                AVL        LLRB       treap   AVL/ins  LLRB/ins
+sorteada            70,068     118,499     199,896      0.70      1.18
+crescente           99,983      99,984      99,990      1.00      1.00
+decrescente         99,983      99,978      99,990      1.00      1.00
+zigue-zague        162,462     199,968     200,346      1.62      2.00
+em blocos          134,223     185,640     201,660      1.34      1.86
 ```
 
-Numa árvore de busca, o percurso em ordem é a sequência ordenada das chaves — e a
-rotação **não muda esse percurso**. As duas árvores contêm a mesma coisa na mesma
-ordem, com alturas diferentes.
+Isso é contraintuitivo e é o ponto. A condição de balanceamento mais frouxa da
+rubro-negra significa que a árvore **pode ficar mais alta**, não que ela
+trabalhe menos. A restrição de Sedgewick de manter toda ligação vermelha à
+esquerda obriga a girar mesmo quando a árvore já estaria válida pelas regras
+rubro-negras originais. Em troca, a inserção inteira cabe em três linhas.
 
-Todo balanceamento — rubro-negra, AVL, splay, treap — é construído em cima disto.
+## A ideia de cada uma
 
-## A remoção é a parte que ninguém acerta
+**AVL**, 1962, a primeira estrutura auto-balanceada da história: as alturas das
+duas subárvores diferem no máximo em um. O limite sai de uma recorrência bonita
+— a AVL mínima de altura h tem subárvores de altura h-1 e h-2, que é Fibonacci,
+e daí a altura é no máximo 1,44 log2(n).
 
-A inserção tem **três** casos, e só um deles sobe na árvore. A remoção tem
-**quatro**, e a cascata é sobre a cor do irmão e dos dois sobrinhos:
+**Rubro-negra**, aqui na variante inclinada para a esquerda de Sedgewick: é uma
+árvore 2-3 disfarçada de binária, com as ligações vermelhas representando os nós
+de três chaves. Se todo caminho tem a mesma quantidade de ligações pretas e não
+há duas vermelhas seguidas, o caminho mais longo é no máximo o dobro do mais
+curto, e a altura fica em 2 log2(n+1).
 
-| caso | o que acontece |
-|---|---|
-| irmão vermelho | uma rotação o troca por um preto; cai nos de baixo |
-| irmão preto, dois sobrinhos pretos | pinta o irmão de vermelho; o problema **sobe** |
-| irmão preto, sobrinho de fora preto | uma rotação traz o vermelho para fora |
-| irmão preto, sobrinho de fora vermelho | uma rotação no pai resolve, e **acaba** |
+**Treap**, 1996: uma árvore de busca pela chave e um monte pela prioridade, que
+é sorteada. O resultado é desconcertante de tão simples — a árvore tem
+exatamente a forma que teria se as chaves tivessem chegado em ordem aleatória,
+**qualquer que tenha sido a ordem real**. Não há caso a analisar, não há altura
+guardada, não há cor. Um dos testes exibe isso: as mesmas chaves com as mesmas
+prioridades, inseridas em ordem crescente, decrescente, em zigue-zague e
+embaralhada, dão a mesma árvore, nó por nó.
 
-Só o caso 2 sobe, e ele não rotaciona. Os outros rotacionam uma vez cada e o 4
-encerra — daí o teto de três.
-
-E há o truque que reduz o problema: um nó com **dois** filhos nunca é removido.
-Ele recebe a chave do sucessor, e quem sai é o sucessor — que tem no máximo um
-filho, por construção.
-
-## Contra o `SortedDictionary`
+**Lista de pulos**, 1990, que nem árvore é: listas encadeadas ordenadas
+empilhadas, cada nível com metade dos elementos do de baixo, e a altura de cada
+elemento vindo de cara ou coroa. Pugh escreveu o artigo com o argumento de que
+ela é mais simples de implementar certo, e implementar certo é a parte difícil.
+A moeda sai exata:
 
 ```
-operação                   nós         meu        .NET     razão
-----------------------------------------------------------------
-inserir                  10000      4.3 ms     10.1 ms      0.4x
-inserir                 100000     41.0 ms     78.8 ms      0.5x
-inserir                1000000   2596.8 ms   3012.1 ms      0.9x
-buscar                 1000000   1454.6 ms   1516.8 ms      1.0x
-percorrer em ordem     1000000    173.1 ms    181.0 ms      1.0x
+$ dotnet medidor.dll niveis
+
+   nivel         nos     razao    esperado
+       0     100,000     1.000      100000
+       1      49,771     0.498       50000
+       2      24,910     0.500       25000
+       3      12,447     0.500       12500
+       4       6,192     0.497        6250
+       5       3,048     0.492        3125
 ```
 
-Este é o resultado que eu não esperava: a implementação daqui é **mais rápida**
-que a do .NET na inserção, e empata no resto.
+## As peças
 
-A explicação honesta não é que o código é melhor — é que ele faz **menos**. O
-`SortedDictionary` compara através de um `IComparer<T>`, que é uma chamada
-virtual por comparação e não pode ser inlinada; aqui a restrição genérica
-`where TChave : IComparable<TChave>` permite ao compilador especializar a chamada
-para o tipo. A diferença some no caso de um milhão de nós, onde o custo passa a
-ser dominado pelas faltas de cache.
+| arquivo | o que faz |
+| --- | --- |
+| `IDicionario.cs` | o contrato comum, com altura e contagem de comparações |
+| `Busca.cs` | a árvore sem balanceamento, que é a linha de base e o problema |
+| `Avl.cs` | AVL, com os quatro casos de desequilíbrio |
+| `Rubro.cs` | rubro-negra inclinada para a esquerda, inserção e remoção |
+| `Treap.cs` | árvore de busca pela chave, monte pela prioridade sorteada |
+| `Pulo.cs` | lista de pulos, com os níveis vindos de cara ou coroa |
+| `Juiz.cs` | a lista ordenada que responde pela definição |
+| `Sequencias.cs` | as ordens de chegada, e os limites provados de cada estrutura |
 
-O preço é que esta árvore **não aceita um comparador**: ela ordena do jeito que o
-tipo ordena, e ponto. É uma funcionalidade a menos, não uma otimização.
-
-## Rodar
-
-.NET 8. Zero dependências fora do xUnit, e só nos testes.
+## Como rodar
 
 ```
 dotnet test testes/Arvore.Testes/Arvore.Testes.csproj -c Release
-dotnet run --project ferramentas/Medidor/Medidor.csproj -c Release
+dotnet run --project ferramentas/Medidor/Medidor.csproj -c Release -- tudo
 ```
 
-## O que ele não faz
-
-Não aceita comparador, como está dito acima. Não tem busca por faixa
-(`entre(a, b)`), nem o k-ésimo elemento — as duas exigiriam guardar o tamanho da
-subárvore em cada nó, o que é fácil e muda a estrutura. Não é thread-safe, nem
-persistente, nem tem iterador que sobreviva a uma modificação. E não é uma
-B-tree: para dados em disco, onde o custo é a leitura de página e não a
-comparação, a resposta é outra estrutura.
+As medidas aceitam `altura`, `busca`, `escrita`, `hibbard`, `niveis` e `tudo`.
 
 ## Licença
 
