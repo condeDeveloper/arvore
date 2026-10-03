@@ -45,6 +45,13 @@ chaves, cada uma seguida de remoção em ordem embaralhada; e, para a remoção 
 rubro-negra, que é a parte difícil, todos os pares de ordem de inserção e de
 remoção até 5 chaves — 14.400 pares por tamanho.
 
+Há ainda um terceiro confronto, que é o mais barato de todos: **duas
+implementações independentes da mesma coisa**. A rubro-negra clássica, com
+ponteiro para o pai, e a inclinada, sem ele; a AVL nova e uma AVL escrita em
+outro dia. Elas foram escritas sem olhar uma para a outra e obedecem às mesmas
+invariantes, então concordarem par a par é uma conferência que nenhuma delas
+faria sozinha.
+
 ## A tabela que justifica o repositório
 
 ```
@@ -116,24 +123,29 @@ um passeio aleatório: a população vagueava, e dez mil operações terminaram 
 116 chaves. A terceira dimensionou o universo de chaves pela população em vez do
 total, e o sorteio de chave inédita entrou em laço infinito.
 
-**A LLRB gira mais que a AVL, apesar da condição mais frouxa.**
+**Eu estava comparando as coisas erradas para medir o preço da inclinação.** A
+primeira versão comparava a LLRB com a AVL, e isso mistura dois efeitos: as duas
+obedecem a condições de balanceamento diferentes, então a diferença de rotações
+não isola nada. A comparação honesta é com a rubro-negra **clássica**, que
+obedece às mesmas cinco regras e difere só na restrição de manter toda ligação
+vermelha à esquerda:
 
 ```
 $ dotnet medidor.dll escrita
 
-entrada                AVL        LLRB       treap   AVL/ins  LLRB/ins
-sorteada            70,068     118,499     199,896      0.70      1.18
-crescente           99,983      99,984      99,990      1.00      1.00
-decrescente         99,983      99,978      99,990      1.00      1.00
-zigue-zague        162,462     199,968     200,346      1.62      2.00
-em blocos          134,223     185,640     201,660      1.34      1.86
+entrada                AVL    classica        LLRB       treap  LLRB/classica
+sorteada            70,068      58,186     118,499     199,896           2.04
+crescente           99,983      99,969      99,984      99,990           1.00
+decrescente         99,983      99,969      99,978      99,990           1.00
+zigue-zague        162,462     149,958     199,968     200,346           1.33
+em blocos          134,223     181,430     185,640     201,660           1.02
 ```
 
-Isso é contraintuitivo e é o ponto. A condição de balanceamento mais frouxa da
-rubro-negra significa que a árvore **pode ficar mais alta**, não que ela
-trabalhe menos. A restrição de Sedgewick de manter toda ligação vermelha à
-esquerda obriga a girar mesmo quando a árvore já estaria válida pelas regras
-rubro-negras originais. Em troca, a inserção inteira cabe em três linhas.
+A inclinação custa **o dobro das rotações** com chaves sorteadas. Em troca, a
+inserção inteira cabe em três linhas. E a coluna da clássica mostra a outra
+troca, a que separa as duas famílias: ela gira menos que a AVL (58 mil contra
+70 mil) e fica mais alta, que é exatamente o que uma condição de balanceamento
+mais frouxa compra e paga.
 
 ## A ideia de cada uma
 
@@ -186,6 +198,9 @@ $ dotnet medidor.dll niveis
 | `Pulo.cs` | lista de pulos, com os níveis vindos de cara ou coroa |
 | `Juiz.cs` | a lista ordenada que responde pela definição |
 | `Sequencias.cs` | as ordens de chegada, e os limites provados de cada estrutura |
+| `ArvoreRubroNegra.cs` | a rubro-negra clássica, com ponteiro para o pai |
+| `ArvoreAvl.cs` | uma AVL escrita em outro dia, que serve de segunda opinião |
+| `Herdadas.cs` | os adaptadores que trazem as duas para o contrato comum |
 
 ## Como rodar
 
