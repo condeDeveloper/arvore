@@ -102,29 +102,79 @@ public class RubroTest
     }
 
     /// <summary>
-    /// O preco da inclinacao, medido: a LLRB faz MAIS rotacoes que a AVL na
-    /// mesma entrada, apesar de ter a condicao de balanceamento mais frouxa.
+    /// O preco da inclinacao, medido contra a rubro-negra CLASSICA.
     ///
-    /// Isso e contraintuitivo e e exatamente o ponto. A condicao mais frouxa
-    /// significa que a arvore pode ficar mais alta, nao que ela trabalhe menos:
-    /// a restricao de manter toda vermelha a esquerda obriga a girar mesmo
-    /// quando a arvore ja estaria valida pelas regras rubro-negras originais.
+    /// Esta e a comparacao honesta, e eu nao a tinha. A primeira versao deste
+    /// teste comparava a LLRB com a AVL, o que mistura duas coisas: as duas
+    /// obedecem a condicoes de balanceamento diferentes, entao a diferenca de
+    /// rotacoes nao isola o efeito da inclinacao.
+    ///
+    /// A classica obedece as MESMAS cinco regras e difere so na restricao de
+    /// manter toda ligacao vermelha a esquerda. O que essa restricao cobra
+    /// aparece limpo: com chaves sorteadas a LLRB gira o DOBRO.
     /// </summary>
     [Fact]
-    public void AInclinacaoCustaRotacoes()
+    public void AInclinacaoCustaODobroDasRotacoes()
     {
         var chaves = Sequencias.Sorteadas(20_000, semente: 17);
 
-        var rubro = new Rubro<int, string>();
-        foreach (var chave in chaves) rubro.Inserir(chave, "x");
+        var inclinada = new Rubro<int, string>();
+        foreach (var chave in chaves) inclinada.Inserir(chave, "x");
 
+        var classica = new Classica<int, string>();
+        foreach (var chave in chaves) classica.Inserir(chave, "x");
+
+        // As duas tem as mesmas chaves e as mesmas regras.
+        Assert.Equal(classica.EmOrdem().Select(p => p.Chave), inclinada.EmOrdem().Select(p => p.Chave));
+        Assert.Null(inclinada.Violacao());
+        Assert.Empty(classica.Conferir());
+
+        var razao = inclinada.Rotacoes / (double)classica.Rotacoes;
+        Assert.InRange(razao, 1.5, 2.5);
+
+        // E a classica gira MENOS que a AVL, que e a troca classica entre as
+        // duas familias: condicao mais frouxa, menos escrita, arvore mais alta.
         var avl = new Avl<int, string>();
         foreach (var chave in chaves) avl.Inserir(chave, "x");
+        Assert.True(classica.Rotacoes < avl.Rotacoes,
+            $"classica: {classica.Rotacoes}, AVL: {avl.Rotacoes}");
+        Assert.True(classica.Altura >= avl.Altura, $"classica: {classica.Altura}, AVL: {avl.Altura}");
+    }
 
-        Assert.True(rubro.Rotacoes > avl.Rotacoes,
-            $"LLRB: {rubro.Rotacoes} rotacoes, AVL: {avl.Rotacoes}");
-        // E, em troca, a arvore fica mais alta.
-        Assert.True(rubro.Altura >= avl.Altura, $"LLRB: {rubro.Altura}, AVL: {avl.Altura}");
+    /// <summary>
+    /// As duas rubro-negras concordam chave por chave, e as duas AVL tambem.
+    ///
+    /// Sao implementacoes escritas em dias diferentes, com estruturas de no
+    /// diferentes (a classica tem ponteiro para o pai, a inclinada nao), e isso
+    /// e o que torna a concordancia informativa.
+    /// </summary>
+    [Fact]
+    public void AsImplementacoesIndependentesConcordam()
+    {
+        var sorteio = new Random(37);
+        var inclinada = new Rubro<int, string>();
+        var classica = new Classica<int, string>();
+        var nova = new Avl<int, string>();
+        var antiga = new AvlAntiga<int, string>();
+
+        for (var passo = 0; passo < 4000; passo++)
+        {
+            var chave = sorteio.Next(0, 300);
+            if (sorteio.NextDouble() < 0.6)
+            {
+                var valor = $"v{passo}";
+                Assert.Equal(inclinada.Inserir(chave, valor), classica.Inserir(chave, valor));
+                Assert.Equal(nova.Inserir(chave, valor), antiga.Inserir(chave, valor));
+            }
+            else
+            {
+                Assert.Equal(inclinada.Remover(chave), classica.Remover(chave));
+                Assert.Equal(nova.Remover(chave), antiga.Remover(chave));
+            }
+
+            Assert.Equal(inclinada.EmOrdem(), classica.EmOrdem());
+            Assert.Equal(nova.EmOrdem(), antiga.EmOrdem());
+        }
     }
 
     /// <summary>
